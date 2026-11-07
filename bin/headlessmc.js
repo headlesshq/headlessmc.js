@@ -12,6 +12,8 @@ const DOCS = 'https://headlesshq.github.io/headlessmc/getting-started/';
 const MIN_GLIBC = '2.34';
 
 const platform = `${process.platform}-${process.arch}`;
+// keep in sync with the scope in scripts/build-packages.mjs
+const platformPackage = `@headlesshq/headlessmc-${platform}`;
 const executable = process.platform === 'win32' ? 'headlessmc.exe' : 'headlessmc';
 
 function fail(message) {
@@ -42,13 +44,13 @@ function versionLessThan(a, b) {
 
 let path;
 try {
-    path = require.resolve(`headlessmc-${platform}/bin/${executable}`);
+    path = require.resolve(`${platformPackage}/bin/${executable}`);
 } catch {
     let reason = `there is no HeadlessMc executable for ${platform}`;
     if (process.platform === 'linux' && !glibcVersion()) {
         reason += ' with musl libc (e.g. Alpine Linux)';
     }
-    fail(`${reason}, or npm skipped the optional dependency headlessmc-${platform} (e.g. with --omit=optional).`);
+    fail(`${reason}, or npm skipped the optional dependency ${platformPackage} (e.g. with --omit=optional).`);
 }
 
 if (process.platform === 'linux') {

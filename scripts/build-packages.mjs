@@ -1,5 +1,6 @@
 // Creates the npm packages from the native executables of a HeadlessMc release: one package per platform with the
-// executable, and the main package headlessmc (this repository) that starts it, see bin/headlessmc.js.
+// executable (@headlesshq/headlessmc-<platform>), and the main package headlessmc (this repository) that starts it,
+// see bin/headlessmc.js.
 //
 // Usage: node scripts/build-packages.mjs [--partial] <version> <dir with the release assets> <output dir>
 //   --partial  skip platforms whose executable is missing, to test the packages without all release assets
@@ -29,6 +30,8 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(npmVersion)) {
 }
 
 const main = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+// the platform packages are scoped, keep in sync with bin/headlessmc.js
+const scope = '@headlesshq';
 
 // npm platform (process.platform-process.arch) -> name of the release asset
 const platforms = {
@@ -47,7 +50,8 @@ rmSync(out, { recursive: true, force: true });
 const optionalDependencies = {};
 for (const [platform, asset] of Object.entries(platforms)) {
     const [os, cpu] = platform.split('-');
-    const name = `${main.name}-${platform}`;
+    const name = `${scope}/${main.name}-${platform}`;
+    const dir = join(out, `${main.name}-${platform}`);
     // always depend on every platform, so that the main package is the same for --partial builds
     optionalDependencies[name] = npmVersion;
 
@@ -60,7 +64,6 @@ for (const [platform, asset] of Object.entries(platforms)) {
         throw new Error(`Missing release asset ${source}`);
     }
 
-    const dir = join(out, name);
     mkdirSync(join(dir, 'bin'), { recursive: true });
     const executable = join(dir, 'bin', os === 'win32' ? 'headlessmc.exe' : 'headlessmc');
     copyFileSync(source, executable);
@@ -84,7 +87,7 @@ for (const [platform, asset] of Object.entries(platforms)) {
     copyFileSync(join(root, 'LICENSE'), join(dir, 'LICENSE'));
 }
 
-if (Object.keys(optionalDependencies).every(name => !existsSync(join(out, name)))) {
+if (!existsSync(out)) {
     throw new Error(`No executables found in ${dist}`);
 }
 
