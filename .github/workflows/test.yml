@@ -1,0 +1,97 @@
+name: Test
+
+# Builds the npm packages from the executables of a HeadlessMc release and runs HeadlessMc through them
+# on every supported platform. Also called by the publish workflow before publishing.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag of headlesshq/headlessmc (defaults to the latest release)
+        required: false
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag of headlesshq/headlessmc
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: headlessmc-launcher-linux-x64
+          - runner: ubuntu-24.04-arm
+            asset: headlessmc-launcher-linux-arm64
+          - runner: macos-15-intel
+            asset: headlessmc-launcher-macos-x64
+          - runner: macos-latest
+            asset: headlessmc-launcher-macos-arm64
+          - runner: windows-latest
+            asset: headlessmc-launcher-windows-x64.exe
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+
+      - name: Download executable
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ -z "$TAG" ]]; then
+            TAG=$(gh release list --repo headlesshq/headlessmc --exclude-drafts --limit 1 --json tagName -q '.[0].tagName')
+          fi
+          echo "Testing HeadlessMc $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release download "$TAG" --repo headlesshq/headlessmc --dir dist --pattern '${{ matrix.asset }}'
+
+      - name: Build and install npm packages
+        env:
+          TAG: ${{ steps.download.outputs.tag }}
+        run: |
+          node scripts/build-packages.mjs --partial "$TAG" dist npm-out
+          mkdir npm-tgz
+          for package in npm-out/*/; do
+            npm pack "$package" --pack-destination npm-tgz
+          done
+          prefix="$RUNNER_TEMP/npm"
+          npm install -g --prefix "$prefix" npm-tgz/*.tgz
+          # npm puts global executables into <prefix>/bin, except on Windows
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "$prefix" >> "$GITHUB_PATH"
+          else
+            echo "$prefix/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Run HeadlessMc from npm
+        env:
+          TAG: ${{ steps.download.outputs.tag }}
+        run: |
+          expected="${TAG#v}"
+          # --version prints "HeadlessMc <version>" (only "<version>" up to 3.0.0-RC8),
+          # followed by a notice if a newer release is available
+          version="$(headlessmc --version | head -n 1 | tr -d '\r')"
+          echo "$version"
+          version="${version#HeadlessMc }"
+          if [[ "$version" != "$expected" ]]; then
+            echo "::error::expected '$expected', but got '$version'"
+            exit 1
+          fi
+          headlessmc "-Dhmc.files.location=$RUNNER_TEMP/hmc" help
+

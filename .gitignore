@@ -1,0 +1,8 @@
+node_modules/
+dist/
+npm-out/
+npm-tgz/
+*.tgz
+.idea/
+.vscode/
+.DS_Store

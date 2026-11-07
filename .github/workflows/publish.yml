@@ -1,0 +1,131 @@
+name: Publish
+
+# Publishes the npm package headlessmc and its platform packages with the native executables of a
+# HeadlessMc release, after testing them on every platform.
+#
+# Uses npm trusted publishing (OIDC) with provenance: configure this workflow (publish.yml, environment npm)
+# as the trusted publisher of every package on npmjs.com. The NPM_TOKEN secret of the npm environment is only
+# needed for the first publish, before the packages exist on npm, see README.md.
+
+on:
+  # sent by the release workflow of headlesshq/headlessmc
+  repository_dispatch:
+    types: [ headlessmc-release ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag of headlesshq/headlessmc (defaults to the latest release)
+        required: false
+      dry-run:
+        description: Only test and pack the packages, do not publish them
+        type: boolean
+        default: false
+  # fallback in case a dispatch got lost
+  schedule:
+    - cron: '37 4 * * *'
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      published: ${{ steps.resolve.outputs.published }}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - name: Resolve release
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+        run: |
+          if [[ -z "$TAG" ]]; then
+            TAG=$(gh release list --repo headlesshq/headlessmc --exclude-drafts --limit 1 --json tagName -q '.[0].tagName')
+          fi
+          # fails if the release does not exist
+          gh release view "$TAG" --repo headlesshq/headlessmc --json tagName -q .tagName
+          version="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # the main package is published last, so if it exists, all packages of this version do
+          if npm view "headlessmc@$version" version >/dev/null 2>&1; then
+            echo "headlessmc@$version is already published"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: resolve
+    if: needs.resolve.outputs.published != 'true'
+    uses: ./.github/workflows/test.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+
+  publish:
+    needs: [ resolve, test ]
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/headlessmc/v/${{ needs.resolve.outputs.version }}
+    permissions:
+      contents: read
+      # npm trusted publishing with provenance
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # trusted publishing needs npm 11.5.1 or newer
+      - name: Update npm
+        run: npm install -g npm@11
+
+      # the npm packages contain exactly the executables of the GitHub release
+      - name: Download executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release download "$TAG" --repo headlesshq/headlessmc --dir dist --pattern 'headlessmc-launcher-*'
+
+      - name: Build npm packages
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: node scripts/build-packages.mjs "$TAG" dist npm-out
+
+      - name: Publish npm packages
+        env:
+          # only for the first publish, afterwards trusted publishing is used
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          DRY_RUN: ${{ inputs.dry-run && '--dry-run' || '' }}
+        run: |
+          # npm requires a dist-tag for prereleases. They become latest as long as there is no stable version on npm,
+          # so that npm install headlessmc works during the release candidates, afterwards they go to next.
+          tag=latest
+          latest=$(npm view headlessmc dist-tags.latest 2>/dev/null || true)
+          if [[ "$VERSION" == *-* && -n "$latest" && "$latest" != *-* ]]; then
+            tag=next
+          fi
+          echo "Publishing $VERSION with dist-tag $tag"
+          # the platform packages first, the main package depends on them
+          for package in npm-out/headlessmc-*/ npm-out/headlessmc/; do
+            name=$(node -p "require('./${package}package.json').name")
+            # skip versions published by an earlier attempt, so that a failed run can be re-run
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "$name@$VERSION is already published, skipping"
+              continue
+            fi
+            npm publish $DRY_RUN --access public --provenance --tag "$tag" "$package"
+          done

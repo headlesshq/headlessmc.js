@@ -1,0 +1,36 @@
+{
+  "name": "headlessmc",
+  "version": "0.0.0-dev",
+  "private": true,
+  "description": "A command line launcher for Minecraft: Java Edition, runs the game headless, handles mod loaders, mods and servers.",
+  "keywords": [
+    "minecraft",
+    "launcher",
+    "headless",
+    "cli",
+    "fabric",
+    "forge",
+    "neoforge",
+    "modding",
+    "ci"
+  ],
+  "homepage": "https://headlesshq.github.io/headlessmc/",
+  "bugs": "https://github.com/headlesshq/headlessmc.js/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/headlesshq/headlessmc.js.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "headlessmc": "bin/headlessmc.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build-packages.mjs"
+  }
+}
