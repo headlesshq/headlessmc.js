@@ -1,6 +1,10 @@
 {
   "name": "headlessmc.js",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  },
   "mounts": [
     "source=headlessmc-js-npm-cache,target=/home/node/.npm,type=volume"
   ],
