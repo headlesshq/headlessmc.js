@@ -1,0 +1,17 @@
+{
+  "name": "headlessmc.js",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  },
+  "mounts": [
+    "source=headlessmc-js-npm-cache,target=/npm-cache,type=volume"
+  ],
+  // Set DEVCONTAINER_USER=root when using rootless Docker.
+  "remoteUser": "${localEnv:DEVCONTAINER_USER:node}",
+  "containerEnv": {
+    "npm_config_cache": "/npm-cache"
+  },
+  "postCreateCommand": "sudo chown \"$(id -u):$(id -g)\" /npm-cache && npm install --no-package-lock"
+}

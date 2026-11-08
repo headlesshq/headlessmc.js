@@ -71,7 +71,7 @@ jobs:
             npm pack "$package" --pack-destination npm-tgz
           done
           prefix="$RUNNER_TEMP/npm"
-          npm install -g --prefix "$prefix" npm-tgz/*.tgz
+          npm install -g --prefix "$prefix" ./npm-tgz/*.tgz
           # npm puts global executables into <prefix>/bin, except on Windows
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             echo "$prefix" >> "$GITHUB_PATH"
