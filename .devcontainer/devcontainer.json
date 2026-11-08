@@ -1,0 +1,9 @@
+{
+  "name": "headlessmc.js",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
+  "mounts": [
+    "source=headlessmc-js-npm-cache,target=/home/node/.npm,type=volume"
+  ],
+  "postCreateCommand": "sudo chown node:node /home/node/.npm && npm install --no-package-lock",
+  "remoteUser": "node"
+}
