@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Starts the native HeadlessMc executable for this platform, like esbuild or biome do.
 // npm installs only the optional dependency that matches os, cpu and libc, which contains the executable.
+// On musl systems (e.g. Alpine Linux) that is the fully static linux-x64-musl executable, which also runs where the
+// glibc executable cannot, e.g. with an older glibc or without the glibc loader (NixOS), if it has been installed.
 'use strict';
 
 const { spawn } = require('node:child_process');
@@ -14,7 +16,11 @@ const MIN_GLIBC = '2.34';
 const platform = `${process.platform}-${process.arch}`;
 // keep in sync with the scope in scripts/build-packages.mjs
 const platformPackage = `@headlesshq/headlessmc-${platform}`;
+// fully static, only built for linux-x64, see scripts/build-packages.mjs
+const muslPackage = `${platformPackage}-musl`;
 const executable = process.platform === 'win32' ? 'headlessmc.exe' : 'headlessmc';
+// the dynamic loader the glibc executables are linked against, keep in sync with scripts/install.sh of headlesshq/headlessmc
+const glibcLoaders = { x64: '/lib64/ld-linux-x86-64.so.2', arm64: '/lib/ld-linux-aarch64.so.1' };
 
 function fail(message) {
     console.error(`headlessmc: ${message}
@@ -42,22 +48,55 @@ function versionLessThan(a, b) {
     return false;
 }
 
-let path;
-try {
-    path = require.resolve(`${platformPackage}/bin/${executable}`);
-} catch {
-    let reason = `there is no HeadlessMc executable for ${platform}`;
-    if (process.platform === 'linux' && !glibcVersion()) {
-        reason += ' with musl libc (e.g. Alpine Linux)';
+function resolve(name) {
+    try {
+        return require.resolve(`${name}/bin/${executable}`);
+    } catch {
+        return undefined;
     }
-    fail(`${reason}, or npm skipped the optional dependency ${platformPackage} (e.g. with --omit=optional).`);
 }
 
-if (process.platform === 'linux') {
-    const glibc = glibcVersion();
-    if (glibc && versionLessThan(glibc, MIN_GLIBC)) {
-        fail(`this system has glibc ${glibc}, the HeadlessMc executable needs glibc ${MIN_GLIBC} or newer.`);
+// node reports no glibc version if it has been built against musl
+const musl = process.platform === 'linux' && !glibcVersion();
+
+// why the glibc executable cannot run on this system, or undefined if it can
+function glibcProblem() {
+    if (musl) {
+        return 'this system uses musl libc (e.g. Alpine Linux)';
     }
+    const glibc = glibcVersion();
+    if (versionLessThan(glibc, MIN_GLIBC)) {
+        return `this system has glibc ${glibc}, the HeadlessMc executable needs glibc ${MIN_GLIBC} or newer`;
+    }
+    const loader = glibcLoaders[process.arch];
+    if (loader && !fs.existsSync(loader)) {
+        return `this system has no ${loader} (e.g. NixOS)`;
+    }
+    return undefined;
+}
+
+let path;
+if (process.platform !== 'linux') {
+    path = resolve(platformPackage);
+} else {
+    const problem = glibcProblem();
+    // on musl systems npm only installs the musl package, on glibc systems only the glibc package,
+    // unless the musl package has been installed explicitly, which is needed where glibc is too old or missing
+    path = (problem ? undefined : resolve(platformPackage)) || resolve(muslPackage);
+    if (!path && problem) {
+        let hint = `there is no static musl executable for ${platform}.`;
+        if (process.arch === 'x64') {
+            const { version } = require('../package.json');
+            hint = musl
+                ? `npm skipped the optional dependency ${muslPackage} (e.g. with --omit=optional).`
+                : `install the static musl executable where headlessmc is installed: npm install --force ${muslPackage}@${version} (with -g for a global headlessmc)`;
+        }
+        fail(`${problem}, ${hint}`);
+    }
+}
+
+if (!path) {
+    fail(`there is no HeadlessMc executable for ${platform}, or npm skipped the optional dependency ${platformPackage} (e.g. with --omit=optional).`);
 }
 
 // the executable bit can get lost, e.g. when a package is extracted by another tool

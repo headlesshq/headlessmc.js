@@ -18,3 +18,8 @@ Or:
 ```shell
 npx headlessmc launch fabric 26.3 -lwjgl
 ```
+
+npm installs the native HeadlessMc executable for your platform as an optional dependency, no Java installation is
+needed for HeadlessMc itself. On Linux x64 with musl libc (e.g. Alpine Linux) this is a fully static executable.
+It also runs where the regular Linux executable cannot, with glibc older than 2.34 or without the glibc loader (e.g. NixOS),
+but there npm does not install it automatically, `headlessmc` prints the command to install it.
