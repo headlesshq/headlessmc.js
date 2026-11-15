@@ -30,6 +30,10 @@ jobs:
         include:
           - runner: ubuntu-latest
             asset: headlessmc-launcher-linux-x64
+          # installed and run with the node of Alpine Linux, so that npm picks the musl package
+          - runner: ubuntu-latest
+            asset: headlessmc-launcher-linux-x64-musl
+            container: node:24-alpine
           - runner: ubuntu-24.04-arm
             asset: headlessmc-launcher-linux-arm64
           - runner: macos-15-intel
@@ -64,12 +68,17 @@ jobs:
       - name: Build and install npm packages
         env:
           TAG: ${{ steps.download.outputs.tag }}
+          CONTAINER: ${{ matrix.container }}
         run: |
           node scripts/build-packages.mjs --partial "$TAG" dist npm-out
           mkdir npm-tgz
           for package in npm-out/*/; do
             npm pack "$package" --pack-destination npm-tgz
           done
+          if [[ -n "$CONTAINER" ]]; then
+            # npm install in the container, see the next step
+            exit 0
+          fi
           prefix="$RUNNER_TEMP/npm"
           npm install -g --prefix "$prefix" ./npm-tgz/*.tgz
           # npm puts global executables into <prefix>/bin, except on Windows
@@ -80,18 +89,15 @@ jobs:
           fi
 
       - name: Run HeadlessMc from npm
-        env:
-          TAG: ${{ steps.download.outputs.tag }}
-        run: |
-          expected="${TAG#v}"
-          # --version prints "HeadlessMc <version>" (only "<version>" up to 3.0.0-RC8),
-          # followed by a notice if a newer release is available
-          version="$(headlessmc --version | head -n 1 | tr -d '\r')"
-          echo "$version"
-          version="${version#HeadlessMc }"
-          if [[ "$version" != "$expected" ]]; then
-            echo "::error::expected '$expected', but got '$version'"
-            exit 1
-          fi
-          headlessmc "-Dhmc.files.location=$RUNNER_TEMP/hmc" help
+        if: '!matrix.container'
+        run: bash scripts/test-installed.sh "${{ steps.download.outputs.tag }}" "$RUNNER_TEMP/hmc"
 
+      - name: Run HeadlessMc from npm in ${{ matrix.container }}
+        if: matrix.container
+        env:
+          CONTAINER: ${{ matrix.container }}
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work "$CONTAINER" sh -euc '
+            apk add --no-cache bash
+            npm install -g ./npm-tgz/*.tgz
+            bash scripts/test-installed.sh "$1" /tmp/hmc' sh "${{ steps.download.outputs.tag }}"

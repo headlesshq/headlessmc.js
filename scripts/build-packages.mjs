@@ -33,13 +33,15 @@ const main = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 // the platform packages are scoped, keep in sync with bin/headlessmc.js
 const scope = '@headlesshq';
 
-// npm platform (process.platform-process.arch) -> name of the release asset
+// npm platform (process.platform-process.arch[-libc]) -> name of the release asset and the libc of Linux executables.
+// The musl executable is fully static, bin/headlessmc.js also uses it where the glibc executable cannot run.
 const platforms = {
-    'linux-x64': 'headlessmc-launcher-linux-x64',
-    'linux-arm64': 'headlessmc-launcher-linux-arm64',
-    'darwin-x64': 'headlessmc-launcher-macos-x64',
-    'darwin-arm64': 'headlessmc-launcher-macos-arm64',
-    'win32-x64': 'headlessmc-launcher-windows-x64.exe',
+    'linux-x64': { asset: 'headlessmc-launcher-linux-x64', libc: 'glibc' },
+    'linux-x64-musl': { asset: 'headlessmc-launcher-linux-x64-musl', libc: 'musl' },
+    'linux-arm64': { asset: 'headlessmc-launcher-linux-arm64', libc: 'glibc' },
+    'darwin-x64': { asset: 'headlessmc-launcher-macos-x64' },
+    'darwin-arm64': { asset: 'headlessmc-launcher-macos-arm64' },
+    'win32-x64': { asset: 'headlessmc-launcher-windows-x64.exe' },
 };
 
 function write(file, json) {
@@ -48,7 +50,7 @@ function write(file, json) {
 
 rmSync(out, { recursive: true, force: true });
 const optionalDependencies = {};
-for (const [platform, asset] of Object.entries(platforms)) {
+for (const [platform, { asset, libc }] of Object.entries(platforms)) {
     const [os, cpu] = platform.split('-');
     const name = `${scope}/${main.name}-${platform}`;
     const dir = join(out, `${main.name}-${platform}`);
@@ -72,15 +74,18 @@ for (const [platform, asset] of Object.entries(platforms)) {
     write(join(dir, 'package.json'), {
         name,
         version: npmVersion,
-        description: `The ${platform} executable of ${main.name}.`,
+        description: libc === 'musl'
+            ? `The statically linked ${os}-${cpu} executable (musl) of ${main.name}.`
+            : `The ${platform} executable of ${main.name}.`,
         homepage: main.homepage,
         bugs: main.bugs,
         repository: main.repository,
         license: main.license,
         os: [os],
         cpu: [cpu],
-        // the Linux executables link against glibc, see MIN_GLIBC in bin/headlessmc.js
-        ...(os === 'linux' ? { libc: ['glibc'] } : {}),
+        // the glibc executables need glibc MIN_GLIBC from bin/headlessmc.js, the musl executable runs everywhere,
+        // but npm only installs it on musl systems automatically
+        ...(libc ? { libc: [libc] } : {}),
         files: ['bin'],
     });
     writeFileSync(join(dir, 'README.md'), `# ${name}\n\nThe ${platform} executable of [${main.name}](https://www.npmjs.com/package/${main.name}), use that package instead.\n`);
